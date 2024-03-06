@@ -1,0 +1,167 @@
+from openai import OpenAI
+import telebot
+from gtts import gTTS
+import os
+from telebot import types
+
+API_KEY = "sk-SCGS2d57Naij7RUUEDRZzJuwSuOoyGNm"
+TELEGRAM_TOKEN = "7195091780:AAFW0QRJBtAuaYbtEg6Aec3iQLiz4rn2qMQ"
+
+client = OpenAI(
+    api_key=API_KEY,
+    base_url="https://api.proxyapi.ru/openai/v1",
+)
+
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+user_modes = {}
+user_settings = {}
+user_languages = {}
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add('English', 'Русский')
+    msg = bot.send_message(message.chat.id, "Please, select your language.\nПожалуйста, выберите ваш язык.", reply_markup=markup)
+    bot.register_next_step_handler(msg, set_language)
+
+def set_language(message):
+    user_id = message.chat.id
+    if message.text == "English":
+        user_languages[user_id] = "en"
+        bot.send_message(user_id, "You have selected English. Use /help to see available commands.", reply_markup=types.ReplyKeyboardRemove())
+    elif message.text == "Русский":
+        user_languages[user_id] = "ru"
+        bot.send_message(user_id, "Вы выбрали русский язык. Используйте /help, чтобы увидеть доступные команды.", reply_markup=types.ReplyKeyboardRemove())
+    else:
+        bot.send_message(user_id, "Language not supported. Please, try again.", reply_markup=types.ReplyKeyboardRemove())
+        start(message)
+
+@bot.message_handler(commands=["help"])
+def help(message):
+    user_id = message.chat.id
+    language = user_languages.get(user_id, "en")
+    if language == "en":
+        help_text = "Available commands:\n"
+        help_text += "/writing_mode - set the text response mode\n"
+        help_text += "/voice_mode - set the voice response mode\n"
+        help_text += "/styles - choose the response style"
+    elif language == "ru":
+        help_text = "Доступные команды:\n"
+        help_text += "/writing_mode - установить текстовый режим ответа\n"
+        help_text += "/voice_mode - установить голосовой режим ответа\n"
+        help_text += "/styles - выбрать стиль ответа"
+    bot.send_message(message.chat.id, help_text)
+
+@bot.message_handler(commands=["styles"])
+def styles(message):
+    user_id = message.chat.id
+    language = user_languages.get(user_id, "en")
+    if language == "en":
+        styles_text = "Available styles:\n"
+        styles_text += "/style_professor - professors style\n"
+        styles_text += "/style_casual - casual style\n"
+        styles_text += "/style_normal - default style\n"
+    elif language == "ru":
+        styles_text = "Доступные стили ответа:\n"
+        styles_text += "/style_professor - стиль профессора\n"
+        styles_text += "/style_casual - неформальный стиль\n"
+        styles_text += "/style_normal - обычный стиль"
+    bot.send_message(message.chat.id, styles_text)
+
+
+@bot.message_handler(commands=["style_professor", "style_casual", "style_normal"])
+def set_style(message):
+    user_id = message.chat.id
+    language = user_languages.get(user_id, "en") 
+
+    if message.text.startswith("/style_professor"):
+        user_settings[user_id] = {
+            "mode": user_modes.get(user_id, "writing"),
+            "style": "style_professor",
+        }
+        response_text = "Style set to professor." if language == "en" else "Выбран стиль профессора."
+    elif message.text.startswith("/style_casual"):
+        user_settings[user_id] = {
+            "mode": user_modes.get(user_id, "writing"),
+            "style": "style_casual",
+        }
+        response_text = "Casual style selected." if language == "en" else "Выбран неформальный стиль."
+    elif message.text.startswith("/style_normal"):
+        user_settings[user_id] = {
+            "mode": user_modes.get(user_id, "writing"),
+            "style": "style_normal",
+        }
+        response_text = "Normal style selected." if language == "en" else "Выбран обычный стиль."
+
+    bot.send_message(user_id, response_text)
+
+@bot.message_handler(commands=['writing_mode'])
+def writing_mode(message):
+    user_id = message.chat.id
+    user_modes[user_id] = "writing"
+    language = user_languages.get(user_id, "en")
+
+    if user_id in user_settings:
+        user_settings[user_id]['mode'] = "writing"
+    else:
+        user_settings[user_id] = {"mode": "writing", "style": "style_normal"}
+
+    response_text = "Text response mode selected." if language == "en" else "Выбран текстовый режим ответа."
+    bot.send_message(user_id, response_text)
+
+@bot.message_handler(commands=['voice_mode'])
+def voice_mode(message):
+    user_id = message.chat.id
+    user_modes[user_id] = "voice"
+    language = user_languages.get(user_id, "en")  
+
+    if user_id in user_settings:
+        user_settings[user_id]['mode'] = "voice"
+    else:
+        user_settings[user_id] = {"mode": "voice", "style": "style_normal"}
+
+    response_text = "Voice response mode selected." if language == "en" else "Выбран голосовой режим ответа."
+    bot.send_message(user_id, response_text)
+
+def chat_with_ai(message):
+    user_id = message.chat.id
+    user_message = message.text
+    chat_message = [{"role": "user", "content": user_message}]
+
+
+    style = user_settings.get(user_id, {}).get("style", "style_normal")
+    mode = user_modes.get(user_id, "writing")
+    language = user_languages.get(user_id, "en")  
+
+
+    style_instructions = {
+        "style_professor": "Отвечай в стиле профессора, используя формальный язык и академические знания.",
+        "style_casual": "Отвечай неформально, будь дружелюбным и расслабленным.",
+        "style_normal": "Отвечай стандартно, без особых стилистических особенностей.",
+    }
+
+
+    if style in style_instructions:
+        chat_message.append({"role": "system", "content": style_instructions[style]})
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-3.5-turbo", messages=chat_message
+    )
+    response_message = chat_completion.choices[0].message.content
+
+
+    if mode == "writing":
+        bot.send_message(chat_id=user_id, text=response_message)
+    elif mode == "voice":
+        tts_lang = "en" if language == "en" else "ru"
+        tts = gTTS(response_message, lang=tts_lang)
+        tts.save("response.mp3")
+        with open("response.mp3", "rb") as voice:
+            bot.send_voice(chat_id=user_id, voice=voice)
+        os.remove("response.mp3")
+
+@bot.message_handler(func=lambda message: not message.text.startswith("/"))
+def handle_message(message):
+    chat_with_ai(message)
+
+bot.polling(non_stop=True, timeout=60)
